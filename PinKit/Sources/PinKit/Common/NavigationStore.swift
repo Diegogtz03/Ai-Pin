@@ -6,7 +6,7 @@ import AppIntents
     
     public var notesNavigationPath = NavigationPath()
     public var capturesNavigationPath = NavigationPath()
-
+    
     public var authenticationPresented = false
     public var activeNote: Note?
     public var isWifiCodeGeneratorPresented = false
@@ -23,6 +23,7 @@ public enum Tab: String, AppEnum {
     case myData
     case settings
     case contacts
+    case dashboard
     
     public static var typeDisplayRepresentation: TypeDisplayRepresentation = "App Tab"
     public static var caseDisplayRepresentations: [Tab: DisplayRepresentation] = [
@@ -30,6 +31,7 @@ public enum Tab: String, AppEnum {
         .captures: "Captures",
         .myData: "My Data",
         .settings: "Settings",
-        .contacts: "Contacts"
+        .contacts: "Contacts",
+        .dashboard: "Memories"
     ]
 }

@@ -5,12 +5,17 @@ public struct ContentView: View {
     private var navigationStore
     
     public init() {}
-
+    
     public var body: some View {
         @Bindable
         var navigationStore = navigationStore
         
         TabView(selection: $navigationStore.selectedTab) {
+            DashboardView()
+                .tabItem {
+                    Label("Memories", systemImage: "memories")
+                }
+                .tag(Tab.dashboard)
             NotesView()
                 .tabItem {
                     Label("Notes", systemImage: "note.text")

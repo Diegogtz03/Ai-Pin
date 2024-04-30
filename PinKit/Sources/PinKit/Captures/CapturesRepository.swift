@@ -12,7 +12,7 @@ import OSLog
     var hasContent: Bool {
         !content.isEmpty
     }
-        
+    
     public init(api: HumaneCenterService = .live()) {
         self.api = api
     }
@@ -130,7 +130,7 @@ extension CapturesRepository {
                 } else {
                     try Task.checkCancellation()
                     do {
-                        return try await api.note(id)
+                        return try await api.memory(id)
                     } catch {
                         logger.debug("\(error)")
                         return nil

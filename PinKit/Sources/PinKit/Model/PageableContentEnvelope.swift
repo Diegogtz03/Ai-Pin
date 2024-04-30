@@ -152,7 +152,7 @@ public struct Pageable: Codable {
     let paged: Bool
 }
 
-public struct Thumbnail: Codable {
+public struct FileAsset: Codable {
     let fileUUID: UUID
     let accessToken: String
 }
@@ -170,8 +170,15 @@ enum CaptureType: String, Codable {
 public struct CaptureEnvelope: Codable {
     let uuid: UUID
     let type: CaptureType
-    let thumbnail: Thumbnail
+    let thumbnail: FileAsset
     let video: Video?
+    
+    let originalThumbnails: [FileAsset]?
+    let originals: [FileAsset]?
+    let derivatives: [FileAsset]?
+    let location: String?
+    let latitude: Double?
+    let longitude: Double?
 }
 
 public struct ContentEnvelope: Codable, Identifiable {
@@ -212,12 +219,13 @@ public struct ContentEnvelope: Codable, Identifiable {
     var favorite: Bool
     let userLastModified: Date
     let userCreatedAt: Date
+    let location: String?
     
     var data: DataClass
     
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-  
+        
         let id = try container.decode(UUID.self, forKey: .uuid)
         self.id = id
         self.uuid = id
@@ -226,6 +234,7 @@ public struct ContentEnvelope: Codable, Identifiable {
         self.userCreatedAt = try container.decode(Date.self, forKey: .userCreatedAt)
         self.originClientId = try container.decode(String.self, forKey: .originClientId)
         self.favorite = try container.decode(Bool.self, forKey: .favorite)
+        self.location = try container.decodeIfPresent(String.self, forKey: .location)
         
         if case var .note(note) = self.data {
             note.memoryId = self.uuid
@@ -240,6 +249,7 @@ public struct ContentEnvelope: Codable, Identifiable {
         case userCreatedAt
         case originClientId
         case favorite
+        case location
     }
 }
 

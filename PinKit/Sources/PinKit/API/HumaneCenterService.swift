@@ -21,7 +21,7 @@ extension HumaneCenterService {
         private let encoder = JSONEncoder()
         private let session: URLSession
         private let userDefaults: UserDefaults
-
+        
         public init(
             userDefaults: UserDefaults = .standard
         ) {
@@ -133,7 +133,7 @@ extension HumaneCenterService {
                 .init(name: "sort", value: sort)
             ]))
         }
-
+        
         public func favorite(memory: ContentEnvelope) async throws {
             try await post(url: memoryUrl.appending(path: memory.uuid.uuidString).appending(path: "favorite"))
         }
@@ -168,7 +168,7 @@ extension HumaneCenterService {
         public func retrieveDetailedDeviceInfo() async throws -> DetailedDeviceInfo {
             let d = try await URLSession.shared.data(from: URL(string: "https://humane.center/account/devices")!).0
             let string = String(data: d, encoding: .utf8)!
-
+            
             return DetailedDeviceInfo(
                 id: extractValue(from: string, forKey: "deviceID") ?? "UNKNOWN",
                 iccid: extractValue(from: string, forKey: "iccid") ?? "UNKNOWN",
@@ -193,7 +193,7 @@ extension HumaneCenterService {
             ]))
         }
         
-        public func note(uuid: UUID) async throws -> ContentEnvelope {
+        public func memory(uuid: UUID) async throws -> ContentEnvelope {
             try await get(url: memoryUrl.appending(path: uuid.uuidString))
         }
         
@@ -202,6 +202,30 @@ extension HumaneCenterService {
             flagResponse.isEnabled = !flagResponse.isEnabled
             let _: String = try await put(url: featureFlagsUrl.appending(path: flag.rawValue), body: flagResponse)
             return try await featureFlag(name: flag.rawValue)
+        }
+        
+        func lostDeviceStatus(deviceId: String) async throws -> LostDeviceEnvelope {
+            try await get(url: subscriptionUrl.appending(path: "deviceAuthorization").appending(path: "lostDevice").appending(queryItems: [
+                .init(name: "deviceId", value: deviceId)
+            ]))
+        }
+        
+        func toggleLostDeviceStatus(deviceId: String) async throws -> LostDeviceEnvelope {
+            var status = try await lostDeviceStatus(deviceId: deviceId)
+            status.isLost = !status.isLost
+            return try await post(url: subscriptionUrl.appending(path: "deviceAuthorization").appending(path: "lostDevice"), body: status)
+        }
+        
+        func deviceIdentifiers() async throws -> [String] {
+            try await get(url: deviceAssignmentUrl.appending(path: "devices"))
+        }
+        
+        func memories() async throws -> MemoriesResponse {
+            try await get(url: captureUrl.appending(path: "memories"))
+        }
+        
+        func deleteAllNotes() async throws -> Bool {
+            try await delete(url: noteUrl)
         }
     }
     
@@ -222,8 +246,13 @@ extension HumaneCenterService {
             unfavorite: { try await service.unfavorite(memory: $0) },
             delete: { try await service.delete(memory: $0) },
             deleteEvent: { try await service.delete(event: $0) },
-            note: { try await service.note(uuid: $0) },
-            toggleFeatureFlag: { try await service.toggleFeatureFlag($0) }
+            memory: { try await service.memory(uuid: $0) },
+            toggleFeatureFlag: { try await service.toggleFeatureFlag($0) },
+            lostDeviceStatus: { try await service.lostDeviceStatus(deviceId: $0) },
+            toggleLostDeviceStatus: { try await service.toggleLostDeviceStatus(deviceId: $0) },
+            deviceIdentifiers: { try await service.deviceIdentifiers() },
+            dashboard: { try await service.memories() },
+            deleteAllNotes: { try await service.deleteAllNotes() }
         )
     }
 }
@@ -242,7 +271,7 @@ extension HumaneCenterService {
     private static let subscriptionV3Url = rootUrl.appending(path: "subscription/v3/subscription")
     private static let addonsUrl = rootUrl.appending(path: "subscription/addons")
     private static let featureFlagsUrl = rootUrl.appending(path: "feature-flags/v0/feature-flag/flags")
-
+    
     static let sessionUrl = URL(string: "https://humane.center/api/auth/session")!
     
     private let decoder: JSONDecoder
@@ -270,8 +299,13 @@ extension HumaneCenterService {
     public var unfavorite: (ContentEnvelope) async throws -> Void
     public var delete: (ContentEnvelope) async throws -> Void
     public var deleteEvent: (EventContentEnvelope) async throws -> Void
-    public var note: (UUID) async throws -> ContentEnvelope
+    public var memory: (UUID) async throws -> ContentEnvelope
     public var toggleFeatureFlag: (FeatureFlag) async throws -> FeatureFlagEnvelope
+    public var lostDeviceStatus: (String) async throws -> LostDeviceEnvelope
+    public var toggleLostDeviceStatus: (String) async throws -> LostDeviceEnvelope
+    public var deviceIdentifiers: () async throws -> [String]
+    public var dashboard: () async throws -> MemoriesResponse
+    public var deleteAllNotes: () async throws -> Void
 
     required public init(
         accessToken: String? = nil,
@@ -290,8 +324,13 @@ extension HumaneCenterService {
         unfavorite: @escaping (ContentEnvelope) async throws -> Void,
         delete: @escaping (ContentEnvelope) async throws -> Void,
         deleteEvent: @escaping (EventContentEnvelope) async throws -> Void,
-        note: @escaping (UUID) async throws -> ContentEnvelope,
-        toggleFeatureFlag: @escaping (FeatureFlag) async throws -> FeatureFlagEnvelope
+        memory: @escaping (UUID) async throws -> ContentEnvelope,
+        toggleFeatureFlag: @escaping (FeatureFlag) async throws -> FeatureFlagEnvelope,
+        lostDeviceStatus: @escaping (String) async throws -> LostDeviceEnvelope,
+        toggleLostDeviceStatus: @escaping (String) async throws -> LostDeviceEnvelope,
+        deviceIdentifiers: @escaping () async throws -> [String],
+        dashboard: @escaping () async throws -> MemoriesResponse,
+        deleteAllNotes: @escaping () async throws -> Void
     ) {
         self.userDefaults = userDefaults
         let decoder = JSONDecoder()
@@ -315,8 +354,13 @@ extension HumaneCenterService {
         self.unfavorite = unfavorite
         self.delete = delete
         self.deleteEvent = deleteEvent
-        self.note = note
+        self.memory = memory
         self.toggleFeatureFlag = toggleFeatureFlag
+        self.lostDeviceStatus = lostDeviceStatus
+        self.toggleLostDeviceStatus = toggleLostDeviceStatus
+        self.deviceIdentifiers = deviceIdentifiers
+        self.dashboard = dashboard
+        self.deleteAllNotes = deleteAllNotes
     }
     
     public func isLoggedIn() -> Bool {
@@ -342,49 +386,37 @@ func extractValue(from text: String, forKey key: String) -> String? {
 // Note: Commented out because they aren't currently used, but will be used and are thus a useful reference
 //
 //extension HumaneCenterService {
-//    
+//
 //    func capturesList(for uuids: [UUID]) async throws -> Bool {
 //        try await get(url: Self.captureUrl.appending(path: "captures").appending(path: "list").appending(queryItems: [
 //            .init(name: "uuid", value: uuids.map(\.uuidString).joined(separator: ","))
 //        ]))
 //    }
 //
-//    func deviceIdentifiers() async throws -> [String] {
-//        try await get(url: Self.deviceAssignmentUrl.appending(path: "devices"))
-//    }
-//
 //    func memoryOriginals(for id: String) async throws -> ResponseContainer {
 //        try await get(url: Self.memoryUrl.appending(path: id).appending(path: "originals"))
 //    }
-//        
+//
 //    func index(memory id: String) async throws -> ResponseContainer {
 //        try await post(url: Self.memoryUrl.appending(path: id).appending(path: "index"))
 //    }
-//    
+//
 //    func tag(memory id: String) async throws -> ResponseContainer {
 //        try await post(url: Self.memoryUrl.appending(path: id).appending(path: "tag"))
 //    }
-//    
+//
 //    func remove(tag id: String, from memory: String) async throws -> ResponseContainer {
 //        try await delete(url: Self.memoryUrl.appending(path: id).appending(path: "tag"))
 //    }
-//    
+//
 //    func save(search: String) async throws -> Bool {
 //        try await get(url: Self.captureUrl.appending(path: "search").appending(path: "save"))
-//    }
-//        
-//    func memories() async throws -> MemoriesResponse {
-//        try await get(url: Self.captureUrl.appending(path: "memories"))
-//    }
-//
-//    func deleteAllNotes() async throws -> Bool {
-//        try await delete(url: Self.noteUrl)
 //    }
 //
 //    func eventsOverview() async throws -> EventOverview {
 //        try await get(url: Self.eventsUrl.appending(path: "mydata").appending(path: "overview"))
 //    }
-//    
+//
 //    func memoryDerivatives(for id: String) async throws -> ResponseContainer {
 //        try await get(url: Self.memoryUrl.appending(path: id).appending(path: "derivatives"))
 //    }
@@ -393,28 +425,22 @@ func extractValue(from text: String, forKey key: String) -> String? {
 //    func pauseSubscription() async throws -> Bool {
 //        try await get(url: Self.subscriptionV3Url)
 //    }
-//    
+//
 //    // TODO: use correct method
 //    func unpauseSubscription() async throws -> Bool {
 //        try await get(url: Self.subscriptionV3Url)
 //    }
-//    
+//
 //    // has a postable version
 //    func addons() async throws -> [Addon] {
 //        try await get(url: Self.addonsUrl)
 //    }
-//    
+//
 //    func delete(addon: Addon) async throws -> Bool {
 //        try await delete(url: Self.addonsUrl.appending(path: addon.spid))
 //    }
-//    
+//
 //    func availableAddons() async throws -> [Addon] {
 //        try await get(url: Self.addonsUrl.appending(path: "types"))
-//    }
-//    
-//    func lostStatus(deviceId: String) async throws -> LostDeviceResponse {
-//        try await get(url: Self.subscriptionUrl.appending(path: "deviceAuthorization").appending(path: "lostDevice").appending(queryItems: [
-//            .init(name: "deviceId", value: deviceId)
-//        ]))
 //    }
 //}
